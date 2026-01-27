@@ -1,0 +1,107 @@
+data:
+  path: data/DIMM defects dataset.xlsx
+  format: xlsx
+  label_col: Disposition
+  time_col: Date
+  id_col: Reference
+  drop_cols: [Root Cause, Reference]
+  categorical_cols: null
+  numeric_cols: null
+  na_values: ['', NA, NaN, 'null']
+
+evaluation:
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  outer_folds: 5
+  inner_folds: 5
+  missing_rate: 0.2
+  missing_mechanism: MAR
+  priority_class: Scrap
+
+stage1:
+  method: LGRGANN
+  k_grid: [3, 5, 7, 9, 11, 15, 21]
+  grey_rho: 0.5
+  eps: 1.0e-08
+  max_iter_knn: 10
+  feature_types: null
+  gan:
+    z_dim: 16
+    hidden: [128, 128]
+    lr_g: 0.0002
+    lr_d: 0.0005
+    batch_size: 128
+    epochs: 300
+    n_critic: 2
+    early_stop_patience: 25
+    eval_every: 5
+    val_mask_frac: 0.15
+    label_smoothing: 0.1
+    grad_clip: 1.0
+    dropout_g: 0.0
+    dropout_d: 0.1
+  xgb_refiner:
+    n_estimators: 800
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.9
+    colsample_bytree: 0.9
+
+stage2:
+  base_model: xgboost
+  objective: multi:softprob
+  num_class: null
+  wbo:
+    enabled: true
+    bo_budget: 200
+    n_initial: 20
+    early_stop_rounds: 40
+    acq_func: EI
+  search_space:
+    reg_alpha: [0.0, 1.0]
+    reg_lambda: [0.0, 1.0]
+    gamma: [0.0, 0.05]
+    learning_rate: [0.01, 0.2]
+    max_depth: [3, 16]
+    min_child_weight: [1.0, 10.0]
+    subsample: [0.5, 1.0]
+    colsample_bytree: [0.5, 1.0]
+    n_estimators: [300, 2500]
+  baselines:
+    run_all: true
+    random_search_budget: 200
+    gridsearch:
+      max_depth: [6, 10, 14]
+      learning_rate: [0.05, 0.09, 0.1]
+      n_estimators: [600, 1200, 1800]
+      subsample: [0.7, 0.73, 0.9]
+      colsample_bytree: [0.7, 0.88, 0.9]
+      gamma: [0.0, 0.003, 0.01]
+      min_child_weight: [1.0, 5.5, 10.0]
+      reg_alpha: [0.0, 0.5, 0.93]
+      reg_lambda: [0.0, 0.44, 0.9]
+    manual_weights: [0.5, 0.3, 0.2]
+
+costs:
+  classes: [Scrap, Return-to-Vendor, Repair]
+  cost_matrix:
+    - [0.0, 3.0, 3.0]
+    - [1.0, 0.0, 1.0]
+    - [1.0, 1.0, 0.0]
+  binary_scrap:
+    false_scrap: 1.0
+    missed_scrap: 5.0
+
+options:
+  use_only_labeled_rows: true
+  include_naturally_unlabeled_in_training: false
+  paper_optimal_weights:
+    w_Scrap: 0.679
+    w_Return: 0.319
+    w_Repair: 0.002
+
+missingness_diagnostic:
+  model: logreg
+  max_iter: 5000
+  solver: saga
+  penalty: l2
+  C: 1.0
