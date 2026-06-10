@@ -1,91 +1,209 @@
-#  Defect Disposition Prediction in Manufacturing Environments: Integrating Cost-Sensitive Bayesian Optimization with Label Reconstruction under Incomplete Annotations
+# Cost-Calibrated Selective Decision Support for Manufacturing Defect Disposition
 
-This repository provides a **two-stage decision-support pipeline** for defect disposition prediction in manufacturing when (i) **target labels are partially missing** and (ii) misclassification errors have **asymmetric business costs**. The approach reconstructs missing disposition labels (Stage 1) and then trains a cost-sensitive classifier with **joint hyperparameter + class-weight optimization** (Stage 2). 
+This repository contains the code and experimental framework for our paper:
 
+**"Cost-Calibrated Selective Decision Support for Manufacturing Defect Disposition under Asymmetric Misclassification Costs"**
 
-## Abstract
+## Overview
 
-In today’s complex manufacturing environments, predictive models are crucial for reducing costly disruptions. However, model performance is often undermined by **missing outcome annotations** and **asymmetric misclassification costs**. We propose an integrated two-stage approach validated on an industrial dataset from a leading computer server manufacturer.  
+We propose a cost-calibrated decision-support framework for manufacturing defect disposition that integrates four components:
 
-**Stage 1** introduces a novel **label reconstruction** method that combines class-informed neighbor search with residual error refinement to correct structured pseudo-label errors.  
-**Stage 2** introduces **cost-sensitive weighted Bayesian optimization** to jointly tune classifier hyperparameters and class weights using a custom F1-based objective prioritizing the high-cost defect class.  
+1. **Cost-sensitive training** — sample weights derived from a misclassification cost matrix, with optional class-frequency balancing
+2. **Post-hoc probability calibration** — Platt scaling, isotonic regression, or temperature scaling, selected automatically via inner cross-validation
+3. **Bayes-risk action selection** — decisions minimise expected cost rather than maximising predicted probability
+4. **Risk-based deferral** — high-risk cases are routed to human review, subject to capacity constraints
 
-On an industrial dataset with **20% missing disposition labels**, reconstructed labels improved downstream performance to **F1 = 0.801** (vs **0.762** baseline). Cost-sensitive optimization improved the high-impact class performance and the overall framework achieved a **25.3% reduction in expected misclassification cost**. 
+The framework is validated on three manufacturing datasets (DIMM memory modules, Steel Plates faults, SECOM semiconductor) with statistically significant cost reductions on all three.
 
-## Proposed Methodology
+## Repository Structure
 
-![alt text](assets/Figure%201.png)
+```
+├── src/
+│   ├── calibration.py          # Platt, isotonic, temperature scaling
+│   ├── decision_layer.py       # Bayes-risk decisions and deferral policies
+│   ├── metrics.py              # Cost-per-1000, ECE, classification metrics
+│   ├── preprocessing.py        # DIMM dataset loading and feature engineering
+│   ├── public_datasets.py      # Steel Plates and SECOM loaders
+│   ├── run_final.py            # Main experiments (12 configs × 3 datasets)
+│   └── run_supplement.py       # Supplementary experiments (baselines, sensitivity)
+├── data/
+│   └── README.md               # Dataset acquisition instructions
+├── figures/
+│   ├── generate_figures.py     # Result visualisation (Tables → Figures)
+│   └── generate_calibration_fig.py  # Calibration reliability diagrams
+├── results/                    # Output directory (populated by experiments)
+├── requirements.txt
+├── environment.yml
+└── .gitignore
+```
 
-**Figure:** Proposed Methodology is shown in two panels: (a) Stage 1 (LGRGANN label reconstruction) and (b) Stage 2 (WBO-CIMP cost-sensitive optimization), with outputs labeled.
+## Quick Start
 
-## Key Features
+### 1. Environment Setup
 
-- **Two-stage design (reconstruction → cost-sensitive learning)** to separate label uncertainty reduction from business-aligned decision learning.
-- **LGRGANN (Stage 1):** MI-weighted Grey-KNN pseudo-labeling + conditional residual refiner (GAN-based) to correct systematic reconstruction errors. 
-- **WBO-CIMP (Stage 2):** Bayesian Optimization that **jointly searches** class weights and hyperparameters under a **priority constraint** for the cost-critical class.  
-- **Temporal generalization (forward-chaining evaluation)** to avoid future-to-past leakage and test performance on later production blocks.  
-- **Business-oriented reporting** via expected misclassification cost per 1000 decisions (relative units). 
+```bash
+# Option A: Conda (recommended)
+conda env create -f environment.yml
+conda activate cost_calibrated
 
+# Option B: pip
+pip install -r requirements.txt
+```
+
+### 2. Obtain Datasets
+
+See [`data/README.md`](data/README.md) for acquisition instructions. Place the DIMM dataset as `Dataset.xlsx` in the repository root. Steel Plates and SECOM are downloaded automatically from UCI on first run.
+
+### 3. Run Experiments
+
+```bash
+# Main experiments: 12 configurations × 3 datasets
+# Includes deferral sweeps, policy comparison, and Wilcoxon tests
+cd src
+python run_final.py
+
+# Supplementary experiments: external baselines, recall constraints,
+# deferral sensitivity, cost matrix sensitivity
+python run_supplement.py
+```
+
+Results are saved to `results/final/` and `results/supplement/` as CSV files.
+
+### 4. Generate Figures
+
+```bash
+cd figures
+python generate_figures.py
+python generate_calibration_fig.py
+```
+
+## Framework Architecture
+
+```
+Input features x
+        │
+        ▼
+┌─────────────────────┐
+│  Cost-Sensitive      │  w(i) = max off-diagonal cost for class y_i
+│  Base Classifier     │  Optional: w_balanced = w · √(N / (K · n_c))
+│  (XGBoost / LightGBM)│
+└─────────┬───────────┘
+          │ raw P(y|x)
+          ▼
+┌─────────────────────┐
+│  Ensemble (optional) │  Average calibrated probabilities
+│  XGB + LGBM          │  from two independently trained models
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│  Calibration Layer   │  Platt / Isotonic / Temperature
+│  (auto-selected)     │  2-fold inner CV on validation cost
+└─────────┬───────────┘
+          │ calibrated P(y|x)
+          ▼
+┌─────────────────────┐
+│  Bayes-Risk Decision │  a* = argmin_a Σ_c C(c,a) · P(c|x)
+│  Rule                │
+└─────────┬───────────┘
+          │
+          ▼
+┌─────────────────────┐
+│  Risk-Based Deferral │  Defer if min_a R(a|x) > review_cost
+│  (capacity-bounded)  │  Subject to capacity constraint B
+└─────────┬───────────┘
+          │
+          ▼
+    Final disposition
+    or human review
+```
+
+## Configuration Key
+
+Experiment configurations follow a naming convention:
+
+| Prefix | Meaning |
+|--------|---------|
+| `CS_`  | Cost-sensitive sample weights (`balanced=False`) |
+| `CB_`  | Cost-balanced weights: cost × √(1/freq) (`balanced=True`) |
+| `Ens`  | XGB + LightGBM ensemble |
+| `Iso`  | Isotonic calibration |
+| `Auto` | Auto-selected calibration (inner CV) |
+| `Platt`| Platt / sigmoid scaling |
+| `Temp` | Temperature scaling |
+| `BR`   | Bayes-risk decision rule |
+
+Example: `CB_Ens_Iso_BR` = cost-balanced ensemble with isotonic calibration and Bayes-risk decisions.
+
+## Cost Matrices
+
+### DIMM (3-class: Repair, Return-to-Vendor, Scrap)
+
+| True \ Action | Repair | RTV | Scrap |
+|---|---|---|---|
+| Repair | 0 | 2 | 1 |
+| RTV | 2 | 0 | 2 |
+| Scrap | 5 | 5 | 0 |
+
+### Steel Plates (3-class: Minor, Moderate, Severe)
+
+| True \ Action | Minor | Moderate | Severe |
+|---|---|---|---|
+| Minor | 0 | 2 | 1 |
+| Moderate | 3 | 0 | 2 |
+| Severe | 5 | 3 | 0 |
+
+### SECOM (binary: Pass, Fail)
+
+| True \ Action | Pass | Fail |
+|---|---|---|
+| Pass | 0 | 1 |
+| Fail | 5 | 0 |
+
+## Validation Strategy
+
+- **DIMM**: Blocked forward-chaining temporal validation (10 time blocks → 7 folds × 10 random seeds = 70 runs per configuration)
+- **Steel Plates**: Stratified 5-fold CV × 10 seeds = 50 runs
+- **SECOM**: Stratified 5-fold CV × 10 seeds = 50 runs, with per-fold feature selection (top 100 by XGBoost importance)
 
 ## Key Results
 
-### Stage 1 — Label Reconstruction (LGRGANN)
-![alt text](assets/Figure%202.png)
+| Dataset | Baseline (XGB Argmax) | Best Config | Cost | Reduction | p-value |
+|---|---|---|---|---|---|
+| DIMM | 543.5 | CB_Ens_Iso_BR | 410.5 | −24.5% | < 0.0001 |
+| Steel | 244.3 | CS_Ens_Auto_BR | 236.6 | −3.2% | 0.019 |
+| SECOM | 326.5 | CS_BR | 311.4 | −4.6% | 0.0001 |
 
-**Figure:** Downstream disposition prediction performance under 20% missing Disposition labels (DIMM dataset). Bars report mean ± standard deviation over 10 random seeds × 5 temporal folds (n = 50) using the time-ordered evaluation (train earlier batches, test later batches). All methods use XGBoost as the downstream classifier; differences reflect the quality of label reconstruction / label inference in the training window.
+With 10% deferral capacity and risk-based routing, total operational costs (including review fees) drop a further 11–16% across datasets.
 
-**Table:** Direct label reconstruction quality on the real DIMM dataset (mask-and-reconstruct), mean ± SD (n = 50)
+## Software Versions
 
-![alt text](assets/Table%201.png)
-
-### Stage 2 — Cost-Sensitive Classification (WBO-CIMP)
-**Table:** Performance comparison of WBO-CIMP against Baselines and Standard Cost Sensitive Methods
-![alt text](assets/Table%202.png)
-
-
-![alt text](assets/Figure%203.png)
-**Figure:** F1-score progression over iterations (left) and average ‘Scrap’ F1 vs wscrap (right) for WBO-CIMP
-
-
-## Installation
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-pip install -e .
-```
-
-## Usage
-
-```bash
-python scripts/run_all.py --config configs/dimm_example.yaml
-python scripts/run_synthetic_rmse.py --config configs/synthetic_example.yaml
-python scripts/run_sensitivity_mnar.py --config configs/dimm_example.yaml
-python scripts/run_missingness_diagnostic.py --config configs/dimm_example.yaml
-```
-
-## Structure
-
-```
-src/lgrgann_wbocimp/
-├── reconstruction_mi.py
-├── reconstruction_grey_knn.py
-├── reconstruction_gan.py
-├── reconstruction_lgrgann.py
-├── wbo_opt.py
-├── baselines_reconstruction.py
-├── eval_metrics.py
-├── eval_runner.py
-├── missingness_diagnostic.py
-└── synthetic.py
-```
+| Package | Version |
+|---------|---------|
+| Python | 3.11 |
+| scikit-learn | 1.2.2 |
+| XGBoost | 2.1.4 |
+| LightGBM | 4.6.0 |
+| CatBoost | 1.2.7 |
+| imbalanced-learn | 0.12.4 |
+| NumPy | 1.24+ |
+| pandas | 2.0+ |
+| SciPy | 1.10+ |
+| matplotlib | 3.7+ |
 
 ## Citation
 
+If you use this code, please cite:
+
 ```bibtex
-@article{srivastava2025costsensitive,
-  title={Defect Disposition Prediction in Manufacturing Environments: Integrating Cost-Sensitive Bayesian Optimization with Label Reconstruction under Incomplete Annotations},
-  author={Srivastava, Sudhanshu and Aqlan, Faisal and Parikh, Pratik J. and Noor-E-Alam, Md.},
-  year={2026}
+@article{srivastava2025costcalibrated,
+  title={Cost-Calibrated Selective Decision Support for Manufacturing Defect Disposition under Asymmetric Misclassification Costs},
+  author={Srivastava, Sudhanshu},
+  journal={Scientific Reports},
+  year={2025}
 }
 ```
+
+## License
+
+This project is released under the MIT License. See [LICENSE](LICENSE) for details.
