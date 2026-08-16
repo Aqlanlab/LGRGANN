@@ -2,7 +2,7 @@
 
 This repository contains the code and experimental framework for our paper:
 
-**"Cost-Calibrated Selective Decision Support for Manufacturing Defect Disposition under Asymmetric Misclassification Costs"**
+**"A Decision Support Framework for Manufacturing Defect Disposition under Asymmetric Operational Costs"**
 
 ## Overview
 
@@ -197,7 +197,7 @@ If you use this code, please cite:
 
 ```bibtex
 @article{srivastava2025costcalibrated,
-  title={Cost-Calibrated Selective Decision Support for Manufacturing Defect Disposition under Asymmetric Misclassification Costs},
+  title={A Decision Support Framework for Manufacturing Defect Disposition under Asymmetric Operational Costs},
   author={Srivastava, Sudhanshu},
   journal={Scientific Reports},
   year={2025}
