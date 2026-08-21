@@ -6,7 +6,13 @@ expected cost per 1000 decisions with its cluster-bootstrap 95% CI
 (fold-level t interval for the deferral rows), annotated with the
 reduction vs. baseline and the fold-level paired-t p-value.
 
-Data: results/revision/table1_corrected.csv and policy_matched/deferral_foldCIs.csv
+Data sources: cost means and bootstrap CIs from results/revision/
+table1_corrected.csv. Deferral-row means are the run_final totals
+(misclassification cost + review fees at rc = 0.5, 10% capacity) reported
+in the paper; their fold-level CIs come from
+results/revision/policy_matched/deferral_foldCIs.csv, and the Steel Plates
+deferral row (cross-fitted LOFO protocol) reproduces from
+results/revision/policy_matched/Steel_LOFO_threshold_deferral.csv.
 Output: results/revision/figures/fig2_summary.{png,svg} (600 DPI)
 """
 import os
